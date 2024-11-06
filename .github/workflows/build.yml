@@ -3,6 +3,8 @@ name: Build
 on:
   push:
     branches: ['package']
+    tags:
+      - "v*.*.*"
   workflow_call:
 
 env:
@@ -49,6 +51,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha         
 
       - name: Run Cog to update versions in files
         run: |
