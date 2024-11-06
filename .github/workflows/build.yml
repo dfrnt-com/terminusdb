@@ -8,6 +8,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  LAST_RELEASED_VERSION: 11.1.11
+  CURRENT_REPO_VERSION: 11.1.12
 
 jobs:
 
@@ -38,6 +40,17 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
+      - name: Run Cog to update versions in files
+        run: |
+          pip install cogapp
+          cog -v
+          cog -r \
+            -D LAST_RELEASED_VERSION=$LAST_RELEASED_VERSION \
+            -D CURRENT_REPO_VERSION=$CURRENT_REPO_VERSION \
+            docs/release-steps.md \
+            src/config/terminus_config.pl \
+            distribution/snap/snapcraft.yaml
+
       - name: Build and push Docker image
         id: push
         uses: docker/build-push-action@v6
@@ -46,8 +59,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: TERMINUSDB_GIT_HASH=${{ github.sha }}
 
       - name: Generate artifact attestation
