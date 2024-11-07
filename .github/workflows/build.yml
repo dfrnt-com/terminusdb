@@ -23,7 +23,7 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: amd64
-          - os: ubuntu-latest
+          - os: ubuntu-latest-arm
             arch: arm64
 
     #runs-on: ubuntu-latest
@@ -50,7 +50,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}   
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.arch == 'amd64' && '' || '-arm64' }}
           tags: |
             type=ref,event=tag
             type=ref,event=branch
