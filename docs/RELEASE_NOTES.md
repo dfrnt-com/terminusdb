@@ -1,3 +1,7 @@
+# TerminusDB Server v11.1.12.1 Release Notes
+## Bug Fixes
+- Fix Content-Length duplicate header issue affecting push and pull (see PR in official TerminusDB)
+
 # TerminusDB Server v11.1.12 Release Notes
 ## Enhancements
 - Initial support for building with SWI-Prolog 9.2

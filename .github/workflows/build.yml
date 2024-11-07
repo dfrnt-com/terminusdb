@@ -3,17 +3,38 @@ name: Build
 on:
   push:
     branches: ['package']
+    tags:
+      - "*"
   workflow_call:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+<<<<<<< HEAD
+=======
+  LAST_RELEASED_VERSION: 11.1.11
+  CURRENT_REPO_VERSION: 11.1.12
+>>>>>>> 0c9a672216d3d4ed2f5c35c8aeec94024f5a53eb
 
 jobs:
 
   build:
     name: Docker image
+<<<<<<< HEAD
     runs-on: ubuntu-latest
+=======
+    # runs-on: ${{ matrix.os }}
+    # strategy:
+    #   matrix:
+    #     include:
+    #       - os: ubuntu-latest
+    #         arch: amd64
+    #       - os: ubuntu-dfrnt-arm
+    #         arch: arm64
+
+    runs-on: ubuntu-latest
+    
+>>>>>>> 0c9a672216d3d4ed2f5c35c8aeec94024f5a53eb
     permissions:
       contents: read
       packages: write
@@ -24,6 +45,15 @@ jobs:
 
       - name: Checkout repo
         uses: actions/checkout@v4
+<<<<<<< HEAD
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+=======
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
@@ -32,11 +62,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+>>>>>>> 0c9a672216d3d4ed2f5c35c8aeec94024f5a53eb
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+<<<<<<< HEAD
+=======
+          tags: |
+            type=ref,event=tag
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Run Cog to update versions in files
+        run: |
+          pip install cogapp
+          cog -v
+          cog -r \
+            -D LAST_RELEASED_VERSION=$LAST_RELEASED_VERSION \
+            -D CURRENT_REPO_VERSION=$CURRENT_REPO_VERSION \
+            docs/release-steps.md \
+            src/config/terminus_config.pl \
+            distribution/snap/snapcraft.yaml
+>>>>>>> 0c9a672216d3d4ed2f5c35c8aeec94024f5a53eb
 
       - name: Build and push Docker image
         id: push
@@ -49,10 +104,17 @@ jobs:
           #cache-from: type=gha
           #cache-to: type=gha,mode=max
           build-args: TERMINUSDB_GIT_HASH=${{ github.sha }}
+          platforms: |
+            linux/arm64
+            linux/amd64
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
+<<<<<<< HEAD
           push-to-registry: true
+=======
+          push-to-registry: true
+>>>>>>> 0c9a672216d3d4ed2f5c35c8aeec94024f5a53eb
