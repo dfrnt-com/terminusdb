@@ -23,7 +23,7 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: amd64
-          - os: ubuntu-latest-arm
+          - os: ubuntu-dfrnt-arm
             arch: arm64
 
     #runs-on: ubuntu-latest
