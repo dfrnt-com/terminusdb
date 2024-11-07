@@ -17,16 +17,16 @@ jobs:
 
   build:
     name: Docker image
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            arch: amd64
-          - os: ubuntu-dfrnt-arm
-            arch: arm64
+    # runs-on: ${{ matrix.os }}
+    # strategy:
+    #   matrix:
+    #     include:
+    #       - os: ubuntu-latest
+    #         arch: amd64
+    #       - os: ubuntu-dfrnt-arm
+    #         arch: arm64
 
-    #runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
     
     permissions:
       contents: read
@@ -46,11 +46,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.arch }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag
             type=ref,event=branch
@@ -78,10 +81,13 @@ jobs:
           #cache-from: type=gha
           #cache-to: type=gha,mode=max
           build-args: TERMINUSDB_GIT_HASH=${{ github.sha }}
+        platforms: |
+          linux/arm64
+          linux/amd64
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.arch }}
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
