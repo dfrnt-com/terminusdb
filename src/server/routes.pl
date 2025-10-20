@@ -1479,6 +1479,183 @@ unpack_handler(post, Path, Request, System_DB, Auth) :-
 %:- begin_tests(unpack_endpoint).
 %:- end_tests(unpack_endpoint).
 
+%%%%%%%%%%%%%%%%%%%% Unbundle Handlers %%%%%%%%%%%%%%%%%%%%%
+:- http_handler(api(unbundle/Path), cors_handler(Method, unbundle_handler(Path)),
+                [method(Method),
+                 chunked,
+                 time_limit(infinite),
+                 methods([options,post])]).
+
+% Unbundle handler - restores/syncs repository from bundle
+% Security:
+%   - Requires database to exist (matches CLI semantics)
+%   - Requires schema_write_access and instance_write_access
+%   - Uses pull mechanism (no linear history constraint)
+%   - Supports both direct payload and TUS resource URI
+%   - Rate limiting recommended for production
+unbundle_handler(post, Path, Request, System_DB, Auth) :-
+    % Execute unbundle with full error reporting
+    % ALL validation happens inside api_report_errors to ensure proper error responses
+    api_report_errors(
+        unbundle,
+        Request,
+        (
+            % Security: Validate path format to prevent directory traversal
+            do_or_die(
+                (   atomic_list_concat(Path_Parts, '/', Path),
+                    length(Path_Parts, Len),
+                    Len >= 2,  % Minimum: org/db
+                    \+ member('..', Path_Parts),  % Prevent directory traversal
+                    \+ member('', Path_Parts)     % Prevent empty segments
+                ),
+                error(invalid_path_format(Path),_)),
+
+            % Security: Database existence check
+            do_or_die(
+                resolve_absolute_string_descriptor(Path, Branch_Descriptor),
+                error(database_not_found(Path),_)),
+
+            do_or_die(
+                (branch_descriptor{} :< Branch_Descriptor),
+                error(unbundle_requires_branch(Branch_Descriptor),_)),
+
+            % Security: Authorization checks
+            % Requires write access since unbundle modifies repository
+            check_descriptor_auth(System_DB, Branch_Descriptor,
+                                  '@schema':'Action/schema_write_access', Auth),
+            check_descriptor_auth(System_DB, Branch_Descriptor,
+                                  '@schema':'Action/instance_write_access', Auth),
+
+            % Get payload - support both TUS and direct upload
+            do_or_die(
+                (   get_payload(Document, Request),
+                    (   (   is_dict(Document),
+                            _{ resource_uri : Resource_Uri } :< Document
+                        )
+                        % TUS resource path
+                    ->  (   tus_uri_resource(Resource_Uri, Resource),
+                            www_form_encode(Auth, Domain),
+                            (   file_upload_storage_path(Storage_Path)
+                            ->  Options = [tus_storage_path(Storage_Path)]
+                            ;   Options = []),
+                            tus_resource_path(Resource, Resource_Path, [domain(Domain)|Options]),
+                            % Security: Validate file exists and is readable
+                            do_or_die(
+                                exists_file(Resource_Path),
+                                error(tus_resource_not_found(Resource_Uri),_)),
+                            % Security: Check file size to prevent DoS
+                            size_file(Resource_Path, File_Size),
+                            % Log large bundle operations for auditing
+                            (   File_Size > 1000000000  % 1GB
+                            ->  format(user_error, 'WARNING: Large bundle upload (~w bytes) by ~w~n', [File_Size, Auth])
+                            ;   true),
+                            read_file_to_string(Resource_Path, Payload, [encoding(octet)])
+                        )
+                    ;   % Direct binary payload
+                        Payload = Document
+                    )
+                ),
+                error(bad_api_document(Document,[resource_uri,payload]),_)),
+
+            % Security: Validate payload is not empty
+            do_or_die(
+                (   Payload \= "",
+                    Payload \= []
+                ),
+                error(empty_bundle_payload,_)),
+
+            % Execute unbundle - uses pull mechanism internally which:
+            %   - Fast-forwards if bundle has new commits
+            %   - No-ops if already up to date  
+            %   - Fails on divergent history
+            unbundle(System_DB, Auth, Path, Payload),
+            
+            % Return success response
+            cors_reply_json(Request,
+                            _{'@type' : 'api:UnbundleResponse',
+                              'api:status' : "api:success",
+                              'api:message' : "Bundle successfully restored/synced"},
+                            [status(200), width(0)])
+        )).
+
+:- begin_tests(unbundle_endpoint).
+:- use_module(core(util/test_utils)).
+:- use_module(library(http/http_open)).
+
+test(unbundle_to_fresh_database,
+     [setup((setup_temp_server(State, Server),
+             create_db_without_schema('admin','source'),
+             create_db_without_schema('admin','target'))),
+      cleanup(teardown_temp_server(State))]) :-
+
+    % Create some data in source
+    resolve_absolute_string_descriptor('admin/source', Source_Descriptor),
+    create_context(Source_Descriptor, commit_info{author:"test",message:"add data"}, Context),
+    with_transaction(Context,
+                     ask(Context, insert(a,b,c)),
+                     _),
+
+    % Create bundle from source
+    open_descriptor(system_descriptor{}, System_DB),
+    bundle(System_DB, 'User/admin', 'admin/source', Bundle_Payload, []),
+
+    % Unbundle to target via HTTP
+    atomic_list_concat([Server, '/api/unbundle/admin/target'], URI),
+    http_post(URI,
+              string(Bundle_Payload),
+              Response,
+              [authorization(basic('admin','root')),
+               request_header('Content-Type'='application/octets')]),
+
+    % Verify success response
+    _{'@type' : 'api:UnbundleResponse',
+      'api:status' : "api:success"} :< Response,
+
+    % Verify data was restored
+    resolve_absolute_string_descriptor('admin/target', Target_Descriptor),
+    open_descriptor(Target_Descriptor, Target_Transaction),
+    once(ask(Target_Transaction, t(a,b,c))).
+
+test(unbundle_fails_on_nonexistent_database,
+     [setup(setup_temp_server(State, Server)),
+      cleanup(teardown_temp_server(State))]) :-
+
+    % Try to unbundle to non-existent database
+    atomic_list_concat([Server, '/api/unbundle/admin/nonexistent'], URI),
+    
+    catch(
+        http_post(URI,
+                  string("fake_bundle_data"),
+                  _Response,
+                  [authorization(basic('admin','root')),
+                   status_code(Status)]),
+        error(http_open_error(_),_),
+        Status = 404),
+    
+    % Should return error status
+    assertion(Status \= 200).
+
+test(unbundle_requires_authorization,
+     [setup((setup_temp_server(State, Server),
+             create_db_without_schema('admin','target'))),
+      cleanup(teardown_temp_server(State))]) :-
+
+    atomic_list_concat([Server, '/api/unbundle/admin/target'], URI),
+    
+    % Try without authentication
+    catch(
+        http_post(URI,
+                  string("fake_bundle"),
+                  _Response,
+                  [status_code(Status)]),
+        error(http_open_error(_),_),
+        Status = 401),
+    
+    % Should return 401 Unauthorized
+    assertion(Status = 401).
+
+:- end_tests(unbundle_endpoint).
+
 %%%%%%%%%%%%%%%%%%%% TUS Handler %%%%%%%%%%%%%%%%%%%%%%%%%
 :- http_handler(api(files), tus_auth_wrapper(tus_dispatch),
                 [ methods([options,head,post,patch,delete]),

@@ -911,10 +911,68 @@ api_error_jsonld_(unpack,error(not_a_repository_descriptor(Descriptor),_), JSON)
     format(string(Msg), "The following descriptor is not a repository descriptor: ~q", [Path]),
     JSON = _{'@type' : 'api:UnpackErrorResponse',
              'api:status' : 'api:failure',
-             'api:error' : _{ '@type' : 'api:NotARepositoryDescriptorError',
-                              'api:absolute_descriptor' : Path},
+             'api:error' : _{ '@type' : 'api:NotARepositoryDescriptor',
+                             'api:absolute_descriptor' : Path},
              'api:message' : Msg
             }.
+api_error_jsonld_(unbundle,error(invalid_path_format(Path),_), JSON) :-
+    format(string(Msg), "Invalid path format: ~q. Expected format: org/db", [Path]),
+    JSON = _{'@type' : 'api:UnbundleErrorResponse',
+             'api:status' : 'api:failure',
+             'api:message' : Msg,
+             'api:error' : _{'@type' : 'api:InvalidPathFormat',
+                             'api:path' : Path}
+            }.
+api_error_jsonld_(unbundle,error(database_not_found(Path),_), JSON) :-
+    format(string(Msg), "Database not found at path: ~q. Create database first with POST /api/db/~w", [Path, Path]),
+    JSON = _{'@type' : 'api:UnbundleErrorResponse',
+             'api:status' : 'api:failure',
+             'api:message' : Msg,
+             'api:error' : _{'@type' : 'api:DatabaseNotFound',
+                             'api:path' : Path}
+            }.
+api_error_jsonld_(unbundle,error(unknown_database(Org,DB),_), JSON) :-
+    format(string(Path), "~w/~w", [Org, DB]),
+    format(string(Msg), "Database not found: ~w. Create database first with POST /api/db/~w", [Path, Path]),
+    JSON = _{'@type' : 'api:UnbundleErrorResponse',
+             'api:status' : 'api:failure',
+             'api:message' : Msg,
+             'api:error' : _{'@type' : 'api:DatabaseNotFound',
+                             'api:path' : Path}
+            }.
+api_error_jsonld_(unbundle,error(unbundle_requires_branch(Descriptor),_), JSON) :-
+    format(string(Msg), "Unbundle requires a branch descriptor, got: ~q", [Descriptor]),
+    JSON = _{'@type' : 'api:UnbundleErrorResponse',
+             'api:status' : 'api:failure',
+             'api:message' : Msg,
+             'api:error' : _{'@type' : 'api:NotABranchDescriptor'}
+            }.
+api_error_jsonld_(unbundle,error(tus_resource_not_found(Uri),_), JSON) :-
+    format(string(Msg), "TUS resource not found: ~q", [Uri]),
+    JSON = _{'@type' : 'api:UnbundleErrorResponse',
+             'api:status' : 'api:failure',
+             'api:message' : Msg,
+             'api:error' : _{'@type' : 'api:TUSResourceNotFound',
+                             'api:resource_uri' : Uri}
+            }.
+api_error_jsonld_(unbundle,error(empty_bundle_payload,_), JSON) :-
+    JSON = _{'@type' : 'api:UnbundleErrorResponse',
+             'api:status' : 'api:failure',
+             'api:message' : "Bundle payload is empty",
+             'api:error' : _{'@type' : 'api:EmptyBundlePayload'}
+            }.
+api_error_jsonld_(unbundle,Error, JSON) :-
+    % Catch-all for pull/fast-forward errors from underlying unbundle mechanism
+    api_error_jsonld_(pull, Error, Pull_JSON),
+    % Convert pull error to unbundle error
+    Pull_JSON = _{'@type' : Pull_Type, 'api:message' : Message, 'api:error' : Error_Detail},
+    (   Pull_Type = 'api:PullErrorResponse'
+    ->  JSON = _{'@type' : 'api:UnbundleErrorResponse',
+                 'api:status' : 'api:failure',
+                 'api:message' : Message,
+                 'api:error' : Error_Detail}
+    ;   JSON = Pull_JSON  % Fallback to original
+    ).
 api_error_jsonld_(push,error(push_has_no_repository_head(Descriptor),_), JSON) :-
     resolve_absolute_string_descriptor(Path, Descriptor),
     format(string(Msg), "The following repository has no head: ~q", [Path]),
