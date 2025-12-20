@@ -85,6 +85,16 @@ test:
 test-int:
 	sh -c "cd tests ; npx mocha"
 
+# Run the unit tests in rust.
+.PHONY: test-rust
+test-rust:
+	sh -c "cd src/rust ; cargo test"
+
+# Run the clippy checks for rust.
+.PHONY: clippy-rust
+clippy-rust:
+	sh -c "cd src/rust ; cargo clippy"
+
 # Quick command for interactive
 .PHONY: i
 i:
@@ -133,4 +143,4 @@ $(ROFF_FILE): $(RONN_FILE)
 	ronn --roff $<
 
 .PHONY: pr
-pr: clean dev restart lint lint-mocha test test-int
+pr: clean dev restart lint lint-mocha test test-int test-rust clippy-rust
